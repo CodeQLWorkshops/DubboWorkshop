@@ -1,2 +1,2 @@
 version: 0.0.0
-libraryPathDependencies: codeql/java-all
+libraryPathDependencies: codeql/java-queries
