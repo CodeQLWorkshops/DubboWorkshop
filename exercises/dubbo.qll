@@ -40,10 +40,15 @@ class DubboListener extends RemoteFlowSource {
   override string getSourceType() { result = "Dubbo Listener Source" }
 }
   
-from DubboListener l
-select 
-  l,
-  l.asParameter().getCallable(),
-  l.asParameter().getCallable().getDeclaringType()
-
+/** Dubbo URL taint steps */
+class URLTaintStep extends TaintTracking::AdditionalTaintStep {
+    override predicate step(DataFlow::Node n1, DataFlow::Node n2) {
+        exists(MethodAccess ma |
+            ma.getMethod().getName().matches("get%") and
+            ma.getMethod().getDeclaringType().hasQualifiedName("org.apache.dubbo.common", "URL") and
+            n1.asExpr() = ma.getQualifier() and
+            n2.asExpr() = ma
+        )
+    }
+}
 

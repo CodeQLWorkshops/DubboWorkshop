@@ -13,6 +13,7 @@
 import java
 import semmle.code.java.dataflow.FlowSources
 import DataFlow::PathGraph
+import dubbo
 import models
 
 /** A method of ScriptEngine that allows code injection. */
@@ -149,3 +150,4 @@ from DataFlow::PathNode source, DataFlow::PathNode sink, ScriptInjectionConfigur
 where conf.hasFlowPath(source, sink)
 select sink.getNode().(ScriptInjectionSink).getMethodAccess(), source, sink,
   "Java Script Engine evaluate $@.", source.getNode(), "user input"
+

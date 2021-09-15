@@ -6,18 +6,21 @@ class ObjectInputClass extends RefType {
   }
 }
 
-class ReadObjectCall extends MethodAccess {
-    ReadObjectCall() {
-        exists(Method m |
-            this.getMethod() = m and
-            m.getName().matches("readObject") and
-            m.getDeclaringType() instanceof ObjectInputClass
-        )
-    }
+class ObjectInputReadCall extends MethodAccess {
+  ObjectInputReadCall() {
+    exists(Method m |
+      this.getMethod() = m and
+      m.getName().matches("read%") and
+      m.getDeclaringType() instanceof ObjectInputClass
+    )
+  }
 }
 
-from ReadObjectCall call
+from ObjectInputReadCall call
 where
-    not call.getEnclosingCallable().getDeclaringType() instanceof ObjectInputClass and
-    not call.getLocation().getFile().getAbsolutePath().matches("%/src/test/%")
-select call, call.getEnclosingCallable(), call.getEnclosingCallable().getDeclaringType()
+  not call.getEnclosingCallable().getDeclaringType() instanceof ObjectInputClass and
+  not call.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+select 
+  call,
+  call.getEnclosingCallable(),
+  call.getEnclosingCallable().getDeclaringType()

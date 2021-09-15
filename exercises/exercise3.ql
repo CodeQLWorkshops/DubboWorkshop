@@ -5,35 +5,51 @@ import java
 import semmle.code.java.dataflow.TaintTracking
 import DataFlow::PathGraph
 
+
+class DubboCodecDecodeBodyMethod extends Method {
+  DubboCodecDecodeBodyMethod() {
+      this.getName() = "decodeBody" and
+      this.getDeclaringType().hasQualifiedName("org.apache.dubbo.rpc.protocol.dubbo", "DubboCodec")
+  }
+}
+
+class ObjectInputReadMethod extends Method {
+  ObjectInputReadMethod() {
+      this.getName().matches("read%") and
+      this.getDeclaringType()
+          .getASourceSupertype*()
+          .hasQualifiedName("org.apache.dubbo.common.serialize", "ObjectInput")
+  }
+}
+
+class SerializationDeserializeMethod extends Method {
+  SerializationDeserializeMethod() {
+      this.getName() = "deserialize" and
+      this.getDeclaringType().hasQualifiedName("org.apache.dubbo.common.serialize", "Serialization")
+  }
+}
+
 class InsecureConfig extends TaintTracking::Configuration {
   InsecureConfig() { this = "InsecureConfig" }
 
   override predicate isSource(DataFlow::Node source) {
-    exists(Method m |
-      m.getName() = "decodeBody" and
-      m.getDeclaringType().hasQualifiedName("org.apache.dubbo.rpc.protocol.dubbo", "DubboCodec") and
+    exists(DubboCodecDecodeBodyMethod m |
       m.getParameter(1) = source.asParameter()
      )
   }
-/*
-  override predicate isAdditionalTaintStep(DataFlow::Node n1, DataFlow::Node n2) {
-    exists(MethodAccess ma |
-      ma.getMethod().getName() = "deserialize" and
-      ma.getMethod().getDeclaringType().hasQualifiedName("org.apache.dubbo.common.serialize", "Serialization") and
-      ma.getArgument(1) = n1.asExpr() and
-      ma = n2.asExpr()
-    )
-  }
-  */
 
   override predicate isSink(DataFlow::Node sink) {
     exists(MethodAccess ma |
-      ma.getMethod().getName().matches("read%") and
-      ma.getMethod()
-          .getDeclaringType()
-          .getASourceSupertype*()
-          .hasQualifiedName("org.apache.dubbo.common.serialize", "ObjectInput") and
+      ma.getMethod() instanceof ObjectInputReadMethod and
       ma.getQualifier() = sink.asExpr()
+    )
+  }
+
+  override predicate isAdditionalTaintStep(DataFlow::Node n1, DataFlow::Node n2) {
+    exists(MethodAccess ma |
+      ma.getMethod() instanceof SerializationDeserializeMethod and
+      ma.getArgument(1) = n1.asExpr() and
+      ma = n2.asExpr()
     )
   }
 }
