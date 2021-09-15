@@ -1,10 +1,10 @@
-# CodeQL for Ruby Workshop
+# CodeQL as an audit oracle workshop
 
-GitHub Day of Learning, 19th August 2021
+HacktivityCon, 18th Semptember 2021
 
-Presented by @calumgrant
+Presented by @pwntester
 
-Slack: #codeql-support
+Slack: #??????
 
 Documentation & tools: https://codeql.github.com
 
@@ -22,70 +22,25 @@ Here are some hints.
 
 # Task 0: Setup
 
-Follow the instructions in the [README](README.md) - you want to have [this repository](https://github.com/github/codeql-ruby-day-of-learning) open in Visual Studio Code. We recommend using Codespaces, but it is fine to use a local version of Visual Studio Code. Make sure that the extension and CodeQL CLI are the latest versions (1.5.2/2.5.9).
+Follow the instructions in the [README](README.md) - you want to have [this repository](https://github.com/CodeQLWorkshops/DubboWorkshop) open in Visual Studio Code. Make sure that the extension and CodeQL CLI are the latest versions.
 
 The databases are included in the snapshot in the [databases](databases/) folder. You can also create your own databases using the CodeQL CLI.
 
-<details>
-<summary>
-How to create your own database (click to expand)
-</summary>
-
-Using the latest CodeQL CLI, you can simply use the built-in Ruby support to create databases. For the beta period, you do need to turn it on explicitly though, using the environment variable.
-
-```bash
-% export CODEQL_ENABLE_EXPERIMENTAL_FEATURES=true
-% codeql database create ~/databases/jekyll -l ruby -s ~/projects/jekyll
-```
-
-</details>
-
 If you already cloned the repo, `git pull` to get the latest changes.
 
-# Task 1: Securing dangerous properties in Pages
+# Exercise 1: Find the Dubbo attack surface known to CodeQL
 
-For this exercise, we will be looking at improving the security of the GitHub pages repo, as described in https://github.com/github/pages/pull/3329. We will focus on GitHub Pages today simply because a recent security audit was performed on this repo (see https://github.com/github/pe-security-lab/issues/822). Hopefully this example will be relevant to some of you.
-
-## Motivation
-
-As an example, we want to find calls like
-
-```rb
-config.delete("collections_dir")
-```
-
-and replace them with
-
-```rb
-config["collections_dir"] = ""
-```
-
-The dangerous properties are: `forwarded_env`, `coderay`, and `collections_dir`.
-
-Outline:
-
-1. Create a new CodeQL file
-2. Find all method calls
-3. Limit it to delete calls
-4. Exploration: Autocomplete, jump-to-definition, AST Viewer
-4. Limit it to dangerous properties
-5. Turn it into a query
-
-
-
-Firstly, create a new query file in the root folder, and make sure that the "pages" database is selected.
-
-## Exercise 1.1: Find all method calls using the `MethodCall` class
-
-You should get 11400 results.
+You should get 10 results.
 
 <details>
 <summary>Hints</summary>
 
 ```
-import ...
+import java
+import semmle.code.java.dataflow.FlowSources
 
-from ...
+from RemoteFlowSource source
+where ...
 select ...
 ```
 
@@ -96,22 +51,78 @@ select ...
 <summary>Solution</summary> 
 
 ```ql
-import ruby
+import java
+import semmle.code.java.dataflow.FlowSources
 
-from MethodCall call
-select call
+from RemoteFlowSource source
+where
+  not source.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+select 
+  source,
+  source.getEnclosingCallable().getDeclaringType(),
+  source.getSourceType()
 ```
 
 </details>
 
-## Exercise 1.2: Restrict the results to methods called `delete`.
+# Exercise 2: Model Netty sources
 
-You should get 52 results.
+You should get 6 results.
 
 <details>
 <summary>Hints</summary>
 
-- Use `MethodCall.getMethodName()` to get the method name.
+A source can be added gloabally, rather than to a specific TaintTracking configuration, by extending `semmle.code.java.dataflow.FlowSources.RemoteFlowSource`: 
+
+```ql
+class NettySource extends RemoteFlowSource {
+  NettySource() {
+    exists(Method m |
+      ...
+      this.asParameter() = m.getParameter(1)
+    )
+  }
+  override string getSourceType() { result = "Netty Source" }
+}
+```
+
+The required APIs can be modelled with:
+
+```ql
+/** The ChannelInboundHandler class */
+class ChannelInboundHandler extends Class {
+  ChannelInboundHandler() {
+    this.getASourceSupertype*().hasQualifiedName("io.netty.channel", "ChannelInboundHandler")
+  }
+}
+
+/** The ChannelInboundHandlerl.channelRead method */
+class ChannelReadMethod extends Method {
+  ChannelReadMethod() {
+      this.getName() = ["channelRead", "channelRead0", "messageReceived"] and
+      this.getDeclaringType() instanceof ChannelInboundHandler
+  }
+}
+```
+
+and
+
+```ql
+/** The ByteToMessageDecoder class */
+class ByteToMessageDecoder extends Class {
+    ByteToMessageDecoder() {
+      this.getASourceSupertype*().hasQualifiedName("io.netty.handler.codec", "ByteToMessageDecoder")
+    }
+}
+
+/** The ByteToMessageDecoder.decode method */
+class DecodeMethod extends Method {
+  DecodeMethod() {
+      this.getName() = ["decode", "decodeLast"] and
+      this.getDeclaringType() instanceof ByteToMessageDecoder
+  }
+}
+```
 
 </details>
 
@@ -119,11 +130,70 @@ You should get 52 results.
 <summary>Solution</summary> 
 
 ```ql
-import ruby
+import java
+import semmle.code.java.dataflow.FlowSources
 
-from MethodCall call
-where call.getMethodName() = "delete"
-select call
+/** The ChannelInboundHandler class */
+class ChannelInboundHandler extends Class {
+  ChannelInboundHandler() {
+    this.getASourceSupertype*().hasQualifiedName("io.netty.channel", "ChannelInboundHandler")
+  }
+}
+
+/** The ChannelInboundHandlerl.channelRead method */
+class ChannelReadMethod extends Method {
+  ChannelReadMethod() {
+      this.getName() = ["channelRead", "channelRead0", "messageReceived"] and
+      this.getDeclaringType() instanceof ChannelInboundHandler
+  }
+}
+
+/** The ByteToMessageDecoder class */
+class ByteToMessageDecoder extends Class {
+    ByteToMessageDecoder() {
+      this.getASourceSupertype*().hasQualifiedName("io.netty.handler.codec", "ByteToMessageDecoder")
+    }
+}
+
+/** The ByteToMessageDecoder.decode method */
+class DecodeMethod extends Method {
+  DecodeMethod() {
+      this.getName() = ["decode", "decodeLast"] and
+      this.getDeclaringType() instanceof ByteToMessageDecoder
+  }
+}
+
+/** The ChannelInboundHandlerl.channelRead(1) source */
+class ChannelReadSource extends RemoteFlowSource {
+    ChannelReadSource() {
+      exists(ChannelReadMethod m |
+        this.asParameter() = m.getParameter(1)
+      )
+    }
+    override string getSourceType() { result = "Netty Handler Source" }
+}
+
+/** The ByteToMessageDecoder.decode(1) source */
+class DecodeSource extends RemoteFlowSource {
+  DecodeSource() {
+    exists(DecodeMethod m |
+      this.asParameter() = m.getParameter(1)
+    )
+  }
+  override string getSourceType() { result = "Netty Decoder Source" }
+}
+
+from RemoteFlowSource source
+where
+  (
+    source instanceof ChannelReadSource or
+    source instanceof DecodeSource
+  ) and
+  not source.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+select
+  source,
+  source.getEnclosingCallable().getDeclaringType(),
+  source.getSourceType()
 ```
 
 </details>
@@ -135,225 +205,584 @@ select call
 * Use the AST viewer. Right-click on any Ruby code and select "CodeQL: View AST".
 * Look at query history
 
-## Exercise 1.3: Restrict the first argument to strings
+# Exercise 3: Variant analysis (Taint Tracking)
 
 The `and` keyword combines two logical expressions.
 
-You should get 31 results.
+You should get 8 results.
 
 <details>
 <summary>Hints</summary>
 
-- Ensure that the first argument has type `StringLiteral`
-- You can use `MethodCall.getArgument(0)` to get the first argument.
-
-</details>
-
-<details>
-<summary>Solution</summary> 
+- A `TaintTracking` query boilerplate:
 
 ```ql
-import ruby
-
-from MethodCall call
-where
-    call.getMethodName() = "delete" and
-    call.getArgument(0) instanceof StringLiteral
-select call
-```
-
-</details>
-
-## Exercise  1.4: Restrict the results to the relevant properties
-
-This should give 6 results.
-
-<details>
-<summary>Hints</summary>
-
-- You can use `StringLiteral.getValueText()` to get the value of the literal
-- You can use the expression `["forwarded_env", "coderay", "collections_dir"]` to encode a multi-valued expression in CodeQL.
-
-</details>
-
-<details>
-<summary>Solution</summary> 
-
-```ql
-import ruby
-
-from MethodCall call, StringLiteral literal
-where
-    call.getMethodName() = "delete" and
-    literal = call.getArgument(0) and
-    literal.getValueText() = ["forwarded_env", "coderay", "collections_dir"]
-select call
-```
-
-or
-
-```ql
-import ruby
-
-from MethodCall call
-where
-    call.getMethodName() = "delete" and
-    call.getArgument(0).(StringLiteral).getValueText() = 
-        ["forwarded_env", "coderay", "collections_dir"]
-select call
-```
-
-</details>
-
-## Exercise 1.5: Remove false-positives
-
-<details>
-<summary>Hints</summary>
-
-- Use the AST viewer to find the parent types
-- Exclude parents whose type is `LogicalOrExpr`
-- Use `getParent()` to get the parent of an expression
-
-</details>
-
-<details>
-<summary>Solution</summary>
-
-```ql
-import ruby
-
-from MethodCall call
-where
-    call.getMethodName() = "delete" and
-    call.getArgument(0).(StringLiteral).getValueText() = 
-        ["forwarded_env", "coderay", "collections_dir"] and
-    not call.getParent() instanceof LogicalOrExpr
-select call
-```
-
-You should have 4 results.
-
-</details>
-
-* Look at quick eval.
-
-## Exercise 1.6: Turn it into a query. 
-
-You can choose to run this query again on all pushes and PRs as a custom query. This prevents the developers from reintroducing the vulnerability in the future.
-
-Create some metadata at the top of the query in the following format:
-
-```
 /**
- * @name ...
- * @description ...
- * @kind problem
- * @problem.severity warning
- * @precision low
- * @id ...
+ * @kind path-problem
  */
+import java
+import semmle.code.java.dataflow.TaintTracking
+import DataFlow::PathGraph
+
+class MyConfig extends TaintTracking::Configuration {
+  MyConfig() { this = "MyConfig" }
+
+  override predicate isSource(DataFlow::Node source) {
+    ...
+  }
+
+  override predicate isSink(DataFlow::Node sink) {
+    ...
+  }
+
+  override predicate isAdditionalTaintStep(DataFlow::Node n1, DataFlow::Node n2) {
+    ...
+  }
+}
+
+from MyConfig conf, DataFlow::PathNode source, DataFlow::PathNode sink
+where conf.hasFlowPath(source, sink)
+select sink, source, sink, "dataflow was found"
 ```
 
-Add a string to the `select`
+- The relevant APIs can be modelled with:
 
+```ql
+class DubboCodecDecodeBodyMethod extends Method {
+  DubboCodecDecodeBodyMethod() {
+      this.getName() = "decodeBody" and
+      this.getDeclaringType().hasQualifiedName("org.apache.dubbo.rpc.protocol.dubbo", "DubboCodec")
+  }
+}
+
+class ObjectInputReadMethod extends Method {
+  ObjectInputReadMethod() {
+      this.getName().matches("read%") and
+      this.getDeclaringType()
+          .getASourceSupertype*()
+          .hasQualifiedName("org.apache.dubbo.common.serialize", "ObjectInput")
+  }
+}
+
+class SerializationDeserializeMethod extends Method {
+  SerializationDeserializeMethod() {
+      this.getName() = "deserialize" and
+      this.getDeclaringType().hasQualifiedName("org.apache.dubbo.common.serialize", "Serialization")
+  }
+}
 ```
-select call, "..."
-```
+
+- A method call is represented with `MethodAccess` in CodeQL
+- `instanceof` operator allows you to enforce CodeQL classes
+
+</details>
 
 <details>
 <summary>Solution</summary> 
 
 ```ql
 /**
- * @name Deleting a dangerous property.
- * @description ...
- * @kind problem
- * @problem.severity warning
- * @precision low
- * @id rb/property-delete
+ * @kind path-problem
+ */
+import java
+import semmle.code.java.dataflow.TaintTracking
+import DataFlow::PathGraph
+
+
+class DubboCodecDecodeBodyMethod extends Method {
+  DubboCodecDecodeBodyMethod() {
+      this.getName() = "decodeBody" and
+      this.getDeclaringType().hasQualifiedName("org.apache.dubbo.rpc.protocol.dubbo", "DubboCodec")
+  }
+}
+
+class ObjectInputReadMethod extends Method {
+  ObjectInputReadMethod() {
+      this.getName().matches("read%") and
+      this.getDeclaringType()
+          .getASourceSupertype*()
+          .hasQualifiedName("org.apache.dubbo.common.serialize", "ObjectInput")
+  }
+}
+
+class SerializationDeserializeMethod extends Method {
+  SerializationDeserializeMethod() {
+      this.getName() = "deserialize" and
+      this.getDeclaringType().hasQualifiedName("org.apache.dubbo.common.serialize", "Serialization")
+  }
+}
+
+class InsecureConfig extends TaintTracking::Configuration {
+  InsecureConfig() { this = "InsecureConfig" }
+
+  override predicate isSource(DataFlow::Node source) {
+    exists(DubboCodecDecodeBodyMethod m |
+      m.getParameter(1) = source.asParameter()
+     )
+  }
+
+  override predicate isSink(DataFlow::Node sink) {
+    exists(MethodAccess ma |
+      ma.getMethod() instanceof ObjectInputReadMethod and
+      ma.getQualifier() = sink.asExpr()
+    )
+  }
+
+  override predicate isAdditionalTaintStep(DataFlow::Node n1, DataFlow::Node n2) {
+    exists(MethodAccess ma |
+      ma.getMethod() instanceof SerializationDeserializeMethod and
+      ma.getArgument(1) = n1.asExpr() and
+      ma = n2.asExpr()
+    )
+  }
+}
+
+from InsecureConfig conf, DataFlow::PathNode source, DataFlow::PathNode sink
+where conf.hasFlowPath(source, sink)
+select sink, source, sink, "unsafe deserialization"
+```
+
+</details>
+
+# Exercise 4: Semantic matches
+
+This should give 14 results.
+
+<details>
+<summary>Hints</summary>
+
+- You can model classes implementing `ObjecInput` with:
+
+```ql
+class ObjectInputClass extends RefType {
+  ObjectInputClass() {
+    this.getASourceSupertype*().hasQualifiedName("org.apache.dubbo.common.serialize", "ObjectInput")
+  }
+}
+```
+
+- Model calls to `ObjectInput.read*` method with a class
+ 
+```ql
+class ObjectInputReadCall extends MethodAccess {
+  ObjectInputReadCall() {
+    ..
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Solution</summary> 
+
+```ql
+import java
+
+class ObjectInputClass extends RefType {
+  ObjectInputClass() {
+    this.getASourceSupertype*().hasQualifiedName("org.apache.dubbo.common.serialize", "ObjectInput")
+  }
+}
+
+class ObjectInputReadCall extends MethodAccess {
+  ObjectInputReadCall() {
+    exists(Method m |
+      this.getMethod() = m and
+      m.getName().matches("read%") and
+      m.getDeclaringType() instanceof ObjectInputClass
+    )
+  }
+}
+
+from ObjectInputReadCall call
+where
+  not call.getEnclosingCallable().getDeclaringType() instanceof ObjectInputClass and
+  not call.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+select 
+  call,
+  call.getEnclosingCallable(),
+  call.getEnclosingCallable().getDeclaringType()
+```
+
+</details>
+
+# Exercise 5: Scaling manual results
+
+This should give 9 results.
+
+<details>
+<summary>Hints</summary>
+
+- Exclude calls from `PojoUtils` and `JavaBeanSerializeUtil`
+- The relevant APIs needed for this query are:
+
+```ql
+class PojoUtilsRealizeMethod extends Method {
+  PojoUtilsRealizeMethod() {
+      this.getName() = "realize" and
+      this.getDeclaringType().getName() = "PojoUtils"
+  }
+}
+
+class JavaBeanSerializeUtilDeserializeMethod extends Method {
+  JavaBeanSerializeUtilDeserializeMethod() {
+      this.getName() = "deserialize" and
+      this.getDeclaringType().getName() = "JavaBeanSerializeUtil"
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Solution</summary>
+
+```ql
+import java
+
+class PojoUtilsRealizeMethod extends Method {
+  PojoUtilsRealizeMethod() {
+      this.getName() = "realize" and
+      this.getDeclaringType().getName() = "PojoUtils"
+  }
+}
+
+class JavaBeanSerializeUtilDeserializeMethod extends Method {
+  JavaBeanSerializeUtilDeserializeMethod() {
+      this.getName() = "deserialize" and
+      this.getDeclaringType().getName() = "JavaBeanSerializeUtil"
+  }
+}
+
+from MethodAccess ma
+where
+  (
+    ma.getMethod() instanceof PojoUtilsRealizeMethod or 
+    ma.getMethod() instanceof JavaBeanSerializeUtilDeserializeMethod
+  ) and
+  not ma.getEnclosingCallable().getDeclaringType() = ma.getMethod().getDeclaringType() and
+  not ma.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+select ma, ma.getEnclosingCallable().getDeclaringType()
+```
+
+</details>
+
+## Exercise 6: Semantic sinks heatmap  
+
+This should give 23 results.
+
+<details>
+<summary>Hints</summary>
+
+- Reuse `UnsafeDeserializationSink` from `semmle.code.java.security.UnsafeDeserializationQuery`:
+
+```ql
+import java
+import semmle.code.java.security.UnsafeDeserializationQuery
+
+from UnsafeDeserializationSink node
+where ...
+select ...
+```
+
+</details>
+
+
+<details>
+<summary>Solution</summary> 
+
+```ql
+import java
+import semmle.code.java.security.UnsafeDeserializationQuery
+
+from UnsafeDeserializationSink node
+where
+  not node.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+select 
+  node.asExpr().getParent().(Call).getCallee().getDeclaringType(), // deserializing class
+  node.asExpr().getParent(), // deserializing method
+  node.asExpr().getParent().(Call).getEnclosingCallable().getDeclaringType() // enclosing class
+```
+
+</details>
+
+# Exercise 7: Configuration Centers
+
+There should be 10 results.
+
+<details>
+<summary>Hints</summary>
+
+- The relevant APIs for this query are:
+ 
+```ql
+class NotifyListener extends RefType {
+  NotifyListener() {
+    this.hasQualifiedName("org.apache.dubbo.registry", "NotifyListener")
+  }
+}
+
+class ConfigurationListener extends RefType {
+  ConfigurationListener() {
+    this.hasQualifiedName("org.apache.dubbo.common.config.configcenter", "ConfigurationListener")
+  }
+}
+
+class ConfigurationListenerProcessMethod extends Method {
+  ConfigurationListenerProcessMethod() {
+    this.getName() = "process" and
+    this.getDeclaringType().getASupertype*() instanceof ConfigurationListener
+  }
+}
+
+class NotifyListenerNotifyMethod extends Method {
+  NotifyListenerNotifyMethod() {
+    this.getName() = "notify" and
+    this.getDeclaringType().getASupertype*() instanceof NotifyListener 
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Solution</summary>
+
+```ql
+import java
+import semmle.code.java.dataflow.FlowSources
+
+class NotifyListener extends RefType {
+  NotifyListener() {
+    this.hasQualifiedName("org.apache.dubbo.registry", "NotifyListener")
+  }
+}
+
+class ConfigurationListener extends RefType {
+  ConfigurationListener() {
+    this.hasQualifiedName("org.apache.dubbo.common.config.configcenter", "ConfigurationListener")
+  }
+}
+
+class ConfigurationListenerProcessMethod extends Method {
+  ConfigurationListenerProcessMethod() {
+    this.getName() = "process" and
+    this.getDeclaringType().getASupertype*() instanceof ConfigurationListener
+  }
+}
+
+class NotifyListenerNotifyMethod extends Method {
+  NotifyListenerNotifyMethod() {
+    this.getName() = "notify" and
+    this.getDeclaringType().getASupertype*() instanceof NotifyListener 
+  }
+}
+
+class DubboListener extends RemoteFlowSource {
+  DubboListener() {
+    (exists(NotifyListenerNotifyMethod m |
+        this.asParameter() = m.getAParameter()
+      ) or
+      exists(ConfigurationListenerProcessMethod m |
+        this.asParameter() = m.getAParameter() 
+      )) and
+      not this.getLocation().getFile().getRelativePath().matches("%/src/test/%")
+  }
+  override string getSourceType() { result = "Dubbo Listener Source" }
+}
+  
+from DubboListener l
+select 
+  l,
+  l.asParameter().getCallable(),
+  l.asParameter().getCallable().getDeclaringType()
+```
+
+</details>
+
+## Exercise 8: Script Injection
+
+There should be 2 results.
+
+<details>
+<summary>Hints</summary>
+
+- Reuse the [experimental Script injection](https://github.com/github/codeql/blob/main/java/ql/src/experimental/Security/CWE/CWE-094/ScriptInjection.ql)
+- Add sources from step 7
+- import local `models.qll` file to bring some unmerged library taint steps
+- Add a new TaintStep for `URL`:
+```ql
+class URLTaintStep extends TaintTracking::AdditionalTaintStep {
+    override predicate step(DataFlow::Node n1, DataFlow::Node n2) {
+        exists(MethodAccess ma |
+            ma.getMethod().getName().matches("get%") and
+            ma.getMethod().getDeclaringType().hasQualifiedName("org.apache.dubbo.common", "URL") and
+            n1.asExpr() = ma.getQualifier() and
+            n2.asExpr() = ma
+        )
+    }
+}
+```
+
+</details>
+
+<details>
+<summary>Solution</summary>
+
+```ql
+/**
+ * @name Injection in Java Script Engine
+ * @description Evaluation of user-controlled data using the Java Script Engine may
+ *              lead to remote code execution.
+ * @kind path-problem
+ * @problem.severity error
+ * @precision high
+ * @id java/unsafe-eval
+ * @tags security
+ *       external/cwe/cwe-094
  */
 
-import ruby
+import java
+import semmle.code.java.dataflow.FlowSources
+import DataFlow::PathGraph
+import models
+import dubbo
 
-from MethodCall call
-where
-    call.getMethodName() = "delete" and
-    call.getArgument(0).(StringLiteral).getValueText() = 
-        ["forwarded_env", "coderay", "collections_dir"] and
-    not call.getParent() instanceof LogicalOrExpr
-select call, "Deleting a dangerous property."
-```
+/** A method of ScriptEngine that allows code injection. */
+class ScriptEngineMethod extends Method {
+  ScriptEngineMethod() {
+    this.getDeclaringType().getASupertype*().hasQualifiedName("javax.script", "ScriptEngine") and
+    this.hasName("eval")
+    or
+    this.getDeclaringType().getASupertype*().hasQualifiedName("javax.script", "Compilable") and
+    this.hasName("compile")
+    or
+    this.getDeclaringType().getASupertype*().hasQualifiedName("javax.script", "ScriptEngineFactory") and
+    this.hasName(["getProgram", "getMethodCallSyntax"])
+  }
+}
 
-</details>
+/** The context class `org.mozilla.javascript.Context` of Rhino Java Script Engine. */
+class RhinoContext extends RefType {
+  RhinoContext() { this.hasQualifiedName("org.mozilla.javascript", "Context") }
+}
 
-# Task 2: Remote code execution in Jekyll
+/** A method that evaluates a Rhino expression with `org.mozilla.javascript.Context`. */
+class RhinoEvaluateExpressionMethod extends Method {
+  RhinoEvaluateExpressionMethod() {
+    this.getDeclaringType().getAnAncestor*() instanceof RhinoContext and
+    this.hasName([
+        "evaluateString", "evaluateReader", "compileFunction", "compileReader", "compileString"
+      ])
+  }
+}
 
-Importing modules from user-controlled locations is a remote code execution vulnerability (especially if you can create the file to execute).
+/**
+ * A method that compiles a Rhino expression with
+ * `org.mozilla.javascript.optimizer.ClassCompiler`.
+ */
+class RhinoCompileClassMethod extends Method {
+  RhinoCompileClassMethod() {
+    this.getDeclaringType()
+        .getASupertype*()
+        .hasQualifiedName("org.mozilla.javascript.optimizer", "ClassCompiler") and
+    this.hasName("compileToClassFiles")
+  }
+}
 
-```ruby
-      def try_require(type, name)
-        require "kramdown/#{type}/#{Utils.snake_case(name)}"
-      rescue LoadError
-        false
-      end
-```
+/**
+ * A method that defines a Java class from a Rhino expression with
+ * `org.mozilla.javascript.GeneratedClassLoader`.
+ */
+class RhinoDefineClassMethod extends Method {
+  RhinoDefineClassMethod() {
+    this.getDeclaringType()
+        .getASupertype*()
+        .hasQualifiedName("org.mozilla.javascript", "GeneratedClassLoader") and
+    this.hasName("defineClass")
+  }
+}
 
-Switch databases to `databases/jekyll.zip`.
+/**
+ * Holds if `ma` is a call to a `ScriptEngineMethod` and `sink` is an argument that
+ * will be executed.
+ */
+predicate isScriptArgument(MethodAccess ma, Expr sink) {
+  exists(ScriptEngineMethod m |
+    m = ma.getMethod() and
+    if m.getDeclaringType().getASupertype*().hasQualifiedName("javax.script", "ScriptEngineFactory")
+    then sink = ma.getArgument(_) // all arguments allow script injection
+    else sink = ma.getArgument(0)
+  )
+}
 
-## Exercise 2.1: Find all `require` statements
+/**
+ * Holds if a Rhino expression evaluation method is vulnerable to code injection.
+ */
+predicate evaluatesRhinoExpression(MethodAccess ma, Expr sink) {
+  exists(RhinoEvaluateExpressionMethod m | m = ma.getMethod() |
+    (
+      if ma.getMethod().getName() = "compileReader"
+      then sink = ma.getArgument(0) // The first argument is the input reader
+      else sink = ma.getArgument(1) // The second argument is the JavaScript or Java input
+    ) and
+    not exists(MethodAccess ca |
+      ca.getMethod().hasName(["initSafeStandardObjects", "setClassShutter"]) and // safe mode or `ClassShutter` constraint is enforced
+      ma.getQualifier() = ca.getQualifier().(VarAccess).getVariable().getAnAccess()
+    )
+  )
+}
 
-There should be 146 results.
+/**
+ * Holds if a Rhino expression compilation method is vulnerable to code injection.
+ */
+predicate compilesScript(MethodAccess ma, Expr sink) {
+  exists(RhinoCompileClassMethod m | m = ma.getMethod() | sink = ma.getArgument(0))
+}
 
-<details>
-<summary>Hints</summary>
+/**
+ * Holds if a Rhino class loading method is vulnerable to code injection.
+ */
+predicate definesRhinoClass(MethodAccess ma, Expr sink) {
+  exists(RhinoDefineClassMethod m | m = ma.getMethod() | sink = ma.getArgument(1))
+}
 
-* This is very similar to finding calls to `delete`.
-* Use `MethodCall` and `getMethodName()`
+/** A script injection sink. */
+class ScriptInjectionSink extends DataFlow::ExprNode {
+  MethodAccess methodAccess;
 
-</details>
+  ScriptInjectionSink() {
+    isScriptArgument(methodAccess, this.getExpr()) or
+    evaluatesRhinoExpression(methodAccess, this.getExpr()) or
+    compilesScript(methodAccess, this.getExpr()) or
+    definesRhinoClass(methodAccess, this.getExpr())
+  }
 
-<details>
-<summary>Solution</summary>
+  /** An access to the method associated with this sink. */
+  MethodAccess getMethodAccess() { result = methodAccess }
+}
 
-```ql
-import ruby
+/**
+ * A taint tracking configuration that tracks flow from `RemoteFlowSource` to an argument
+ * of a method call that executes injected script.
+ */
+class ScriptInjectionConfiguration extends TaintTracking::Configuration {
+  ScriptInjectionConfiguration() { this = "ScriptInjectionConfiguration" }
 
-from MethodCall call
-where call.getMethodName() = "require"
-select call
-```
+  override predicate isSource(DataFlow::Node source) {
+    source instanceof RemoteFlowSource
+   }
 
-If you have 198 results, then you are still on the "pages" database!
+  override predicate isSink(DataFlow::Node sink) {
+    sink instanceof ScriptInjectionSink
+  }
+}
 
-</details>
-
-## Exercise 2.2: Find those just with interpolated strings
-
-Try to find the interesting result.
-
-```ruby
-require "kramdown/#{type}/#{Utils.snake_case(name)}"
-```
-
-<details>
-<summary>Hints</summary>
-
-- You need to find a `StringLiteral` with components
-- Use `StringLiteral.getNumberOfComponents()`
-
-</details>
-
-<details>
-<summary>Solution</summary>
-
-```ql
-import ruby
-
-from MethodCall call
-where
-  call.getMethodName() = "require" and
-  call.getArgument(0).(StringLiteral).getNumberOfComponents() > 1
-select call, "Potential RCE."
+from DataFlow::PathNode source, DataFlow::PathNode sink, ScriptInjectionConfiguration conf
+where conf.hasFlowPath(source, sink)
+select sink.getNode().(ScriptInjectionSink).getMethodAccess(), source, sink,
+  "Java Script Engine evaluate $@.", source.getNode(), "user input"
 ```
 
 </details>
@@ -361,5 +790,5 @@ select call, "Potential RCE."
 # Next steps
 
 * For tools and documentation, visit https://codeql.github.com
-* Slack channel: #codeql-support
+* Slack: ghsecuritylab.slack.com
 * Enable CodeQL analysis for your own repos
