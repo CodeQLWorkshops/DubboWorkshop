@@ -4,7 +4,7 @@ HacktivityCon, 18th Semptember 2021
 
 Presented by @pwntester
 
-Slack: #??????
+Slack: ghsecuritylab.slack.com #dubbo-workshop
 
 Documentation & tools: https://codeql.github.com
 
@@ -20,7 +20,7 @@ Here are some hints.
 </details>
 
 
-# Task 0: Setup
+# Exercise 0: Setup
 
 Follow the instructions in the [README](README.md) - you want to have [this repository](https://github.com/CodeQLWorkshops/DubboWorkshop) open in Visual Studio Code. Make sure that the extension and CodeQL CLI are the latest versions.
 
